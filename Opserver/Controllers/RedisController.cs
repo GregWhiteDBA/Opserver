@@ -9,16 +9,19 @@ namespace StackExchange.Opserver.Controllers
     [OnlyAllow(Roles.Redis)]
     public partial class RedisController : StatusController
     {
-        protected override ISecurableSection SettingsSection => Current.Settings.Redis;
+        public override ISecurableSection SettingsSection => Current.Settings.Redis;
 
-        protected override string TopTab => TopTabs.BuiltIn.Redis;
+        public override TopTab TopTab => new TopTab("Redis", nameof(Dashboard), this, 20)
+        {
+            GetMonitorStatus = () => RedisInstance.AllInstances.GetWorstStatus()
+        };
 
         [Route("redis")]
         public ActionResult Dashboard(string node)
         {
             var instance = RedisInstance.GetInstance(node);
             if (instance != null)
-                return RedirectToAction("Instance", new {node});
+                return RedirectToAction(nameof(Instance), new {node});
 
             var vd = new DashboardModel
             {
@@ -95,7 +98,7 @@ namespace StackExchange.Opserver.Controllers
                 return TextPlain("Instance not found");
             instance.ClearDatabaseMemoryAnalysisCache(db);
 
-            return RedirectToAction("Analysis", new { node, db });
+            return RedirectToAction(nameof(Analysis), new { node, db });
         }
     }
 }

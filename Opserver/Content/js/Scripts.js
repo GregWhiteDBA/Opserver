@@ -98,7 +98,8 @@
         }
     }
 
-    var currentDialog = null;
+    var currentDialog = null,
+        prevHash = null;
 
     function closePopup() {
         if (currentDialog) {
@@ -111,7 +112,8 @@
     function popup(url, data, options) {
         closePopup();
 
-        var dialog = currentDialog = bootbox.dialog({
+        var hash = window.location.hash,
+            dialog = currentDialog = bootbox.dialog({
             message: '<div class="modal-loader js-summary-popup"></div>',
             title: 'Loading...',
             size: 'large',
@@ -122,14 +124,21 @@
 
         dialog.on('hide.bs.modal', function () {
             var l = window.location;
-            if ('pushState' in history) {
-                history.pushState('', document.title, l.pathname + l.search);
-                hashChangeHandler();
-            } else {
-                l.hash = '';
+            if (hash === l.hash) { // Only clear when we aren't shifting hashes
+                if ('pushState' in history) {
+                    history.pushState('', document.title, l.pathname + l.search);
+                    hashChangeHandler();
+                } else {
+                    l.hash = '';
+                }
             }
             if (options && options.onClose) {
                 options.onClose.call(this);
+            }
+        });
+        dialog.on('hidden.bs.modal', function() {
+            if ($('.bootbox').length) {
+                $('body').addClass('modal-open');
             }
         });
         if (options && options.modalClass) {
@@ -139,7 +148,12 @@
         // TODO: refresh intervals via header
         $('.js-summary-popup')
             .appendWaveLoader()
-            .load(url, data, function () {
+            .load(Status.options.rootPath + url, data, function (responseText, textStatus, req) {
+                if (textStatus === 'error') {
+                    $(this).closest('.modal-content').find('.modal-header .modal-title').addClass('text-warning').text('Error');
+                    $(this).html('<div class="alert alert-warning"><h5>Error loading</h5><p class="error-stack">Status: ' + req.statusText + '\nCode: ' + req.status + '\nUrl: ' + url + '</p></div><p>Direct link: <a href="' + url + '">' + url + '</a></p>');
+                    return;
+                }
                 var titleElem = $(this).findWithSelf('h4.modal-title');
                 if (titleElem) {
                     $(this).closest('.modal-content').find('.modal-header .modal-title').replaceWith(titleElem);
@@ -151,29 +165,30 @@
         return dialog;
     }
 
-    function hashChangeHandler() {
+    function hashChangeHandler(firstLoad) {
         var hash = window.location.hash;
         if (!hash || hash.length > 1) {
             for (var h in loadersList) {
                 if (loadersList.hasOwnProperty(h) && hash.indexOf(h) === 0) {
                     var val = hash.replace(h, '');
-                    loadersList[h](val);
+                    loadersList[h](val, firstLoad, prevHash);
                 }
             }
         }
         if (!hash) {
             closePopup();
         }
+        prevHash = hash;
     }
 
     function registerLoaders(loaders) {
         $.extend(loadersList, loaders);
     }
 
-    $(window).on('hashchange', hashChangeHandler);
+    $(window).on('hashchange', function () { hashChangeHandler(); });
     $(function() {
         // individual sections add via Status.loaders.register(), delay running until after they're added on-load
-        setTimeout(hashChangeHandler, 1);
+        setTimeout(function () { hashChangeHandler(true); }, 1);
     });
 
     function prepTableSorter() {
@@ -221,7 +236,7 @@
 
         if (options.HeaderRefresh) {
             Status.refresh.register('TopBar', function() {
-                return $.ajax('/top-refresh', {
+                return $.ajax(options.rootPath + 'top-refresh', {
                     data: { tab: Status.options.Tab }
                 }).done(function (html) {
                     var resp = $(html);
@@ -276,7 +291,7 @@
                 link.find('.glyphicon').hide();
                 link.find('.js-text').text('Polling...');
                 Status.refresh.pause();
-                $.post('/poll', data)
+                $.post(Status.options.rootPath + 'poll', data)
                     .fail(function() {
                         toastr.error('There was an error polling this node.', 'Polling',
                         {
@@ -307,7 +322,7 @@
 
             if (type && key) {
                 $(this).text('').prependWaveLoader().addClass('disabled');
-                $.ajax('/poll', {
+                $.ajax(Status.options.rootPath + 'poll', {
                     data: {
                         type: type,
                         key: key,
@@ -331,7 +346,7 @@
             bootbox.confirm('Are you sure you want to force poll all nodes?', function(result) {
                 if (result) {
                     $link.text('').prependWaveLoader().addClass('disabled');
-                    $.post('/poll/all')
+                    $.post(Status.options.rootPath + 'poll/all')
                         .done(function() {
                             window.location.reload(true);
                         });
@@ -408,7 +423,7 @@ Status.Dashboard = (function () {
         
         Status.loaders.register({
             '#/dashboard/graph/': function (val) {
-                Status.popup('/dashboard/graph/' + val);
+                Status.popup('dashboard/graph/' + val);
             }
         });
 
@@ -462,7 +477,7 @@ Status.Dashboard.Server = (function () {
 
         Status.loaders.register({
             '#/dashboard/summary/': function (val) {
-                Status.popup('/dashboard/node/summary/' + val, { node: Status.Dashboard.Server.options.node });
+                Status.popup('dashboard/node/summary/' + val, { node: Status.Dashboard.Server.options.node });
             }
         });
 
@@ -526,13 +541,13 @@ Status.Elastic = (function () {
 
         Status.loaders.register({
             '#/elastic/node/': function (val) {
-                Status.popup('/elastic/node/modal/' + val, {
+                Status.popup('elastic/node/modal/' + val, {
                     cluster: Status.Elastic.options.cluster,
                     node: Status.Elastic.options.node
                 });
             },
             '#/elastic/cluster/': function (val) {
-                Status.popup('/elastic/cluster/modal/' + val, {
+                Status.popup('elastic/cluster/modal/' + val, {
                     cluster: Status.Elastic.options.cluster,
                     node: Status.Elastic.options.node
                 });
@@ -540,7 +555,7 @@ Status.Elastic = (function () {
             '#/elastic/index/': function (val) {
                 var parts = val.split('/');
                 var reqOptions = $.extend({}, options, { index: parts[0] });
-                Status.popup('/elastic/index/modal/' + parts[1], reqOptions);
+                Status.popup('elastic/index/modal/' + parts[1], reqOptions);
             }
         });
     }
@@ -641,7 +656,7 @@ Status.SQL = (function () {
             ag: pieces.length > 1 ? pieces[1] : null,
             node: pieces.length > 2 ? pieces[2] : null
         };
-        Status.popup('/sql/servers', $.extend({}, Status.Dashboard.options.refreshData, { detailOnly: true }));
+        Status.popup('sql/servers', $.extend({}, Status.Dashboard.options.refreshData, { detailOnly: true }));
     }
 
     function loadPlan(val) {
@@ -649,7 +664,7 @@ Status.SQL = (function () {
             handle = parts[0],
             offset = parts.length > 1 ? parts[1] : null;
         $('.plan-row[data-plan-handle="' + handle + '"]').addClass('info');
-        Status.popup('/sql/top/detail', {
+        Status.popup('sql/top/detail', {
             node: Status.SQL.options.node,
             handle: handle,
             offset: offset
@@ -724,17 +739,38 @@ Status.SQL = (function () {
             '#/cluster/': loadCluster,
             '#/plan/': loadPlan,
             '#/sql/summary/': function (val) {
-                Status.popup('/sql/instance/summary/' + val, { node: Status.SQL.options.node });
+                Status.popup('sql/instance/summary/' + val, { node: Status.SQL.options.node }, {
+                    modalClass: val === 'errors' ? 'modal-huge' : 'modal-lg'
+                });
             },
             '#/sql/top/filters': function () {
-                Status.popup('/sql/top/filters' + window.location.search, null, filterOptions);
+                Status.popup('sql/top/filters' + window.location.search, null, filterOptions);
             },
             '#/sql/active/filters': function () {
-                Status.popup('/sql/active/filters' + window.location.search, null, filterOptions);
+                Status.popup('sql/active/filters' + window.location.search, null, filterOptions);
             },
-            '#/db/': function(val) {
-                Status.popup('/sql/db/' + val, { node: Status.SQL.options.node }, {
-                     modalClass: 'modal-huge'
+            '#/db/': function (val, firstLoad, prev) {
+                var obj = val.indexOf('tables/') > 0 || val.indexOf('views/') || val.indexOf('storedprocedures/') > 0
+                          ? val.split('/').pop() : null;
+                function showColumns() {
+                    $('.js-next-collapsible').removeClass('info').next().hide();
+                    var cell = $('[data-obj="' + obj + '"]').addClass('info').next().show(200).find('td');
+                    if (cell.length === 1) {
+                        cell.css('max-width', cell.closest('.js-database-modal-right').width());
+                    }
+                }
+                if (!firstLoad) {
+                    // TODO: Generalize this to not need the replace? Possibly a root load in the modal
+                    if ((/\/tables/.test(val) && /\/tables/.test(prev)) || (/\/views/.test(val) && /\/views/.test(prev)) || (/\/storedprocedures/.test(val) && /\/storedprocedures/.test(prev))) {
+                        showColumns();
+                        return;
+                    }
+                }
+                Status.popup('sql/db/' + val, { node: Status.SQL.options.node }, {
+                    modalClass: 'modal-huge',
+                    onLoad: function () {
+                        showColumns();
+                    }
                 });
             }
         });        
@@ -761,7 +797,7 @@ Status.SQL = (function () {
         function agentAction(link, route, errMessage) {
             var origText = link.text();
             var $link = link.text('').prependWaveLoader();
-            $.ajax('/sql/' + route, {
+            $.ajax(Status.options.rootPath + 'sql/' + route, {
                 type: 'POST',
                 data: {
                     node: Status.SQL.options.node,
@@ -770,7 +806,7 @@ Status.SQL = (function () {
                 },
                 success: function (data, status, xhr) {
                     if (data === true) {
-                        Status.popup('/sql/instance/summary/jobs', { node: Status.SQL.options.node });
+                        Status.popup('sql/instance/summary/jobs', { node: Status.SQL.options.node });
                     } else {
                         $link.text(origText).errorPopupFromJSON(xhr, errMessage);
                     }
@@ -796,6 +832,8 @@ Status.SQL = (function () {
             return false;
         }).on('click', '.ag-node', function() {
             window.location.hash = $('.ag-node-name a', this)[0].hash;
+        }).on('click', '.js-next-collapsible', function () {
+            window.location.hash = window.location.hash.replace(/\/tables\/.*/, '/tables').replace(/\/views\/.*/, '/views').replace(/\/storedprocedures\/.*/, '/storedprocedures');
         });
     }
 
@@ -812,10 +850,10 @@ Status.Redis = (function () {
 
         Status.loaders.register({
             '#/redis/summary/': function(val) {
-                Status.popup('/redis/instance/summary/' + val, { node: Status.Redis.options.node + ':' + Status.Redis.options.port });
+                Status.popup('redis/instance/summary/' + val, { node: Status.Redis.options.node + ':' + Status.Redis.options.port });
             },
             '#/redis/actions/': function (val) {
-                Status.popup('/redis/instance/actions/' + val);
+                Status.popup('redis/instance/actions/' + val);
             }
         });
 
@@ -927,7 +965,7 @@ Status.Exceptions = (function () {
                 loadingMore = true;
                 $('.js-bottom-loader').show();
                 var lastGuid = $('.js-exceptions tr.js-error').last().data('id');
-                $.ajax('/exceptions/load-more', {
+                $.ajax(Status.options.rootPath + 'exceptions/load-more', {
                     data: {
                         log: options.log,
                         sort: options.sort,
@@ -1098,7 +1136,7 @@ Status.Exceptions = (function () {
                         context: this,
                         traditional: true,
                         data: { ids: ids, returnCounts: true },
-                        url: '/exceptions/delete-list',
+                        url: Status.options.rootPath + 'exceptions/delete-list',
                         success: function (data) {
                             var table = selected.closest('table');
                             selected.remove();
@@ -1157,7 +1195,7 @@ Status.Exceptions = (function () {
                         type: 'POST',
                         traditional: true,
                         data: { log: options.log, ids: ids },
-                        url: '/exceptions/delete-list',
+                        url: Status.options.rootPath + 'exceptions/delete-list',
                         success: function (data) {
                             window.location.href = data.url;
                         },
@@ -1187,23 +1225,23 @@ Status.Exceptions = (function () {
             var previewTimer = 0;
             $('.js-content').on({
                 mouseenter: function (e) {
-                    if ($(e.target).closest('td:first-child').length) {
-                        return;
+                    if ($(e.target).closest('.js-error td:nth-child(4)').length) {
+                        var jThis = $(this).find('.js-exception-link'),
+                            url = jThis.attr('href').replace('/detail', '/preview');
+
+                        clearTimeout(previewTimer);
+                        previewTimer = setTimeout(function() {
+                                $.get(url,
+                                    function(resp) {
+                                        var sane = $(resp).filter('.error-preview');
+                                        if (!sane.length) return;
+
+                                        $('.error-preview-popup').fadeOut(125, function() { $(this).remove(); });
+                                        var errDiv = $('<div class="error-preview-popup" />').append(resp);
+                                        errDiv.appendTo(jThis.parent()).fadeIn('fast');
+                                    });
+                            }, 600);
                     }
-                    var jThis = $(this).find('.js-exception-link'),
-                        url = jThis.attr('href').replace('/detail', '/preview');
-
-                    clearTimeout(previewTimer);
-                    previewTimer = setTimeout(function () {
-                        $.get(url, function (resp) {
-                            var sane = $(resp).filter('.error-preview');
-                            if (!sane.length) return;
-
-                            $('.error-preview-popup').fadeOut(125, function () { $(this).remove(); });
-                            var errDiv = $('<div class="error-preview-popup" />').append(resp);
-                            errDiv.appendTo(jThis.parent()).fadeIn('fast');
-                        });
-                    }, 600);
                 },
                 mouseleave: function () {
                     clearTimeout(previewTimer);
@@ -1219,7 +1257,7 @@ Status.Exceptions = (function () {
                 type: 'POST',
                 data: { id: options.id, log: options.log, redirect: true },
                 context: this,
-                url: '/exceptions/delete',
+                url: Status.options.rootPath + 'exceptions/delete',
                 success: function (data) {
                     window.location.href = data.url;
                 },
@@ -1238,7 +1276,7 @@ Status.Exceptions = (function () {
                 type: 'POST',
                 data: { id: options.id, log: options.log, actionid: actionid },
                 context: this,
-                url: '/exceptions/jiraaction',
+                url: Status.options.rootPath + 'exceptions/jiraaction',
                 success: function (data) {
                     $(this).removeClass('loading');
                     if (data.success) {
@@ -1297,7 +1335,7 @@ Status.HAProxy = (function () {
                 $.ajax({
                     type: 'POST',
                     data: data,
-                    url: '/haproxy/admin/action',
+                    url: Status.options.rootPath + 'haproxy/admin/action',
                     success: function () {
                         Status.refresh.run();
                     },
@@ -1585,7 +1623,7 @@ Status.HAProxy = (function () {
                 svg, focus, context, clip,
                 currentArea,
                 refreshTimer,
-                urlPath = '/graph/' + options.type + (options.subtype ? '/' + options.subtype : '') + '/json',
+                urlPath = Status.options.rootPath + 'graph/' + options.type + (options.subtype ? '/' + options.subtype : '') + '/json',
                 params = { summary: true },
                 stack, stackArea, stackSummaryArea, stackFunc; // stacked specific vars
             
@@ -1615,14 +1653,25 @@ Status.HAProxy = (function () {
                 height = options.height - margin.top - margin.bottom;
                 height2 = options.height - margin2.top - margin2.bottom;
 
+                var timeFormats = d3.time.format.utc.multi([
+                    ['.%L', function (d) { return d.getUTCMilliseconds(); }],
+                    [':%S', function (d) { return d.getUTCSeconds(); }],
+                    ['%H:%M', function (d) { return d.getUTCMinutes(); }],
+                    ['%H:%M', function (d) { return d.getUTCHours(); }],
+                    ['%a %d', function (d) { return d.getUTCDay() && d.getUTCDate() !== 1; }],
+                    ['%b %d', function (d) { return d.getUTCDate() !== 1; }],
+                    ['%B', function (d) { return d.getUTCMonth(); }],
+                    ['%Y', function () { return true; }]
+                ]);
+
                 x = d3.time.scale.utc().range([0, width]);
                 x2 = d3.time.scale.utc().range([0, width]);
                 y = d3.scale.linear().range([height, 0]);
                 yr = d3.scale.linear().range([height, 0]);
                 y2 = d3.scale.linear().range([height2, 0]);
 
-                xAxis = d3.svg.axis().scale(x).orient('bottom');
-                xAxis2 = d3.svg.axis().scale(x2).orient('bottom');
+                xAxis = d3.svg.axis().scale(x).orient('bottom').tickFormat(timeFormats);
+                xAxis2 = d3.svg.axis().scale(x2).orient('bottom').tickFormat(timeFormats);
                 yAxis = d3.svg.axis().scale(y).orient('left');
                 yrAxis = d3.svg.axis().scale(yr).orient('right');
                 
@@ -2023,10 +2072,10 @@ Status.HAProxy = (function () {
                 brush2.extent(x.domain())(bottomBrushArea);
 
                 if (options.showBuilds && !data.builds) {
-                    $.getJSON('/graph/builds/json', params, function (bData) {
-                        postProcess(bData);
-                        drawBuilds(bData);
-                    });
+                    //$.getJSON(Status.options.rootPath + 'graph/builds/json', params, function (bData) {
+                    //    postProcess(bData);
+                    //    drawBuilds(bData);
+                    //});
                 }
             }
 

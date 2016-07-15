@@ -1,10 +1,12 @@
-﻿@using StackExchange.Opserver.Data.HAProxy
+﻿@using StackExchange.Opserver.Controllers
+@using StackExchange.Opserver.Data.HAProxy
 @using Action = StackExchange.Opserver.Data.HAProxy.Action
 @model StackExchange.Opserver.Views.HAProxy.HAProxyModel
 @{
     Layout = "HAProxy.cshtml";
 
     var isAdmin = Current.User.IsHAProxyAdmin;
+    // TODO: Fold in
     var groupQS = Model.SelectedGroup != null ? "&group=" + Model.SelectedGroup.Name.UrlEncode() : "";
     var proxies = Model.Proxies;
     // move critical stuff to the top
@@ -104,7 +106,7 @@
                     var anyUp = g.AllServers.Any(s => !s.InMaintenance);
                     var anyDown = g.AllServers.Any(s => s.InMaintenance);
 
-                    <tbody class="@(g.GroupLinkName == Model.WatchProxy ? "watched-proxy" : "")" data-group="@g.Name" data-proxy="@g.ProxyName">
+                    <tbody class="@(g.GroupLinkName == Model.WatchProxy ? "watched-proxy" : "")" data-group="@g.GroupName" data-proxy="@g.ProxyName">
                         <tr class="category-row" title="Name: @g.GroupName">
                             <th colspan="12">
                                 <h5>
@@ -117,7 +119,7 @@
                                            class="js-haproxy-action glyphicon glyphicon-minus-sign text-danger hover-pulsate@(anyUp ? null : " disabled")" 
                                            title="take all servers out of rotation for this backend"></a>
                                     }
-                                    <a href="/haproxy?watch=@g.GroupLinkName.UrlEncode()@groupQS" class="node-name-link">@g.GroupStatus.IconSpan() @g.GroupName: @g.NiceName</a>
+                                    <a href="@Url.Action(nameof(HAProxyController.Dashboard), new { watch = g.GroupLinkName })@groupQS">@g.GroupStatus.IconSpan() @g.GroupName: @g.NiceName</a>
                                     <span class="pull-right text-muted small">As of: @g.PollDate.ToRelativeTimeSpanMini()</span>
                                 </h5>
                             </th>
@@ -138,8 +140,13 @@
                             var latestStat = s.OrderBy(si => si.LastStatusChange).Last();
                             var sAnyUp = s.Any(sp => !sp.InMaintenance);
                             var sAnyDown = s.Any(sp => sp.InMaintenance);
+                            // If everything is green, render it as a backup server if appropriate
+                            var isBackup = s.Any(sp => sp.IsServer && sp.Backup > 0);
+                            var rowClass = proxyStatus == MonitorStatus.Good
+                                ? isBackup ? "info" : ""
+                                : proxyStatus.RowClass();
 
-                            <tr class="@(GetRowClass(stat.Type)) status @proxyStatus.RowClass()" data-server="@stat.Description">
+                            <tr class="@(GetRowClass(stat.Type)) status @rowClass" data-server="@stat.Description">
                                 <td>
                                     @if (stat.IsServer && showAdmin)
                                     {
@@ -151,14 +158,14 @@
                                            title="take this server out of rotation for this backend"></a>
                                     }
                                 </td>
-                                <td>@proxyStatus.IconSpan() @stat.Description</td>
+                                <td>@proxyStatus.IconSpan() @stat.Description@if (isBackup){ <span class="text-primary"> (Backup)</span>}</td>
                                 <td class="load-balancers">
                                     @foreach (var ip in s)
                                     {
                                         var p = statMapping[ip];
                                         // TODO: Primary/active detection
                                         var isPrimary = false;
-                                        <span title="@ip.CheckStatusString" class="@(isPrimary ? "primary" : null)">@ip.IconSpan() @p.Instance.Name</span>
+                                        <span title="@ip.CheckStatusString" class="@(isPrimary ? "primary" : null)@(ip.IsServer && ip.Backup > 0 ? " text-muted" : null)">@ip.IconSpan() @p.Instance.Name</span>
                                     }
                                 </td>
                                 <td title="@CombinedStat("Current sessions", s, si => si.CurrentSessions.ToComma()) ">

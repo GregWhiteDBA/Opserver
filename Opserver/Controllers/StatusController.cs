@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Net;
-using System.Web.WebPages;
 using System.Web.Mvc;
 using Jil;
 using StackExchange.Opserver.Views.Shared;
@@ -14,8 +13,8 @@ namespace StackExchange.Opserver.Controllers
     [OnlyAllow(Roles.Authenticated)]
     public partial class StatusController : Controller
     {
-        protected virtual ISecurableSection SettingsSection => null;
-        protected virtual string TopTab => null;
+        public virtual ISecurableSection SettingsSection => null;
+        public virtual TopTab TopTab => null;
 
         private IDisposable _betweenInitializeAndActionExecuting,
                             _betweenActionExecutingAndExecuted,
@@ -37,7 +36,7 @@ namespace StackExchange.Opserver.Controllers
             {
                 _stopStep(_betweenInitializeAndActionExecuting);
                 _betweenActionExecutingAndExecuted = _startStep(nameof(OnActionExecuting));
-                TopTabs.CurrentTab = TopTab;
+                TopTabs.SetCurrent(filterContext.Controller.GetType());
             }
 
             var iSettings = SettingsSection as Settings;
@@ -81,17 +80,17 @@ namespace StackExchange.Opserver.Controllers
             var s = Current.Settings;
 
             if (s.Dashboard.Enabled && s.Dashboard.HasAccess())
-                return RedirectToAction("Dashboard", "Dashboard");
+                return RedirectToAction(nameof(DashboardController.Dashboard), "Dashboard");
             if (s.SQL.Enabled && s.SQL.HasAccess())
-                return RedirectToAction("Dashboard", "SQL");
+                return RedirectToAction(nameof(SQLController.Dashboard), "SQL");
             if (s.Redis.Enabled && s.Redis.HasAccess())
-                return RedirectToAction("Dashboard", "Redis");
+                return RedirectToAction(nameof(RedisController.Dashboard), "Redis");
             if (s.Elastic.Enabled && s.Elastic.HasAccess())
-                return RedirectToAction("Dashboard", "Elastic");
+                return RedirectToAction(nameof(ElasticController.Dashboard), "Elastic");
             if (s.Exceptions.Enabled && s.Exceptions.HasAccess())
-                return RedirectToAction("Exceptions", "Exceptions");
+                return RedirectToAction(nameof(ExceptionsController.Exceptions), "Exceptions");
             if (s.HAProxy.Enabled && s.HAProxy.HasAccess())
-                return RedirectToAction("HAProxyDashboard", "HAProxy");
+                return RedirectToAction(nameof(HAProxyController.Dashboard), "HAProxy");
 
             return View("NoConfiguration");
         }
@@ -120,7 +119,7 @@ namespace StackExchange.Opserver.Controllers
         {
             if (Current.User.IsAnonymous)
             {
-                return Redirect("/login?ReturnUrl=" + Request.Url.PathAndQuery.UrlEncode());
+                return RedirectToAction(nameof(LoginController.Login), "Login", new { returnUrl = Request.Url?.PathAndQuery });
             }
 
             Response.StatusCode = (int)HttpStatusCode.Forbidden;
@@ -172,9 +171,9 @@ namespace StackExchange.Opserver.Controllers
             return new ContentResult { Content = content?.ToString(), ContentType = "application/json" };
         }
 
-        protected JsonResult Json<T>(T data)
+        protected JsonResult Json<T>(T data, Options options = null)
         {
-            return new JsonJilResult<T> { Data = data, JsonRequestBehavior = JsonRequestBehavior.AllowGet };
+            return new JsonJilResult<T> { Data = data, Options = options, JsonRequestBehavior = JsonRequestBehavior.AllowGet };
         }
 
         protected JsonResult JsonNotFound()
@@ -204,6 +203,7 @@ namespace StackExchange.Opserver.Controllers
         public class JsonJilResult<T> : JsonResult
         {
             public new T Data { get; set; }
+            public Options Options { get; set; }
             public override void ExecuteResult(ControllerContext context)
             {
                 if (context == null)
@@ -213,7 +213,7 @@ namespace StackExchange.Opserver.Controllers
                 response.ContentType = ContentType.HasValue() ? ContentType : "application/json";
                 if (ContentEncoding != null) response.ContentEncoding = ContentEncoding;
 
-                var serializedObject = JSON.Serialize(Data);
+                var serializedObject = JSON.Serialize(Data, Options);
                 response.Write(serializedObject);
             }
         }

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace StackExchange.Opserver.Data.SQL
 {
@@ -53,38 +54,49 @@ namespace StackExchange.Opserver.Data.SQL
                 });
             }
         }
+        
+        public Cache<List<DatabaseFile>> GetFileInfo(string databaseName) =>
+            DatabaseFetch<DatabaseFile>(databaseName);
 
         public Cache<List<DatabaseTable>> GetTableInfo(string databaseName) =>
-            Cache<List<DatabaseTable>>.WithKey(GetCacheKey("TableInfo-" + databaseName),
-                UpdateFromSql("Table Info for " + databaseName,
-                    conn =>
-                    {
-                        var sql = $"Use [{databaseName}]; {GetFetchSQL<DatabaseTable>()}";
-                        return conn.QueryAsync<DatabaseTable>(sql);
-                    },
-                    logExceptions: true),
-                10, 5*60);
+            DatabaseFetch<DatabaseTable>(databaseName, 60, 5*60);
+
+        public Cache<List<DatabaseView>> GetViewInfo(string databaseName) =>
+            DatabaseFetch<DatabaseView>(databaseName, 60, 5*60);
+
+        public Cache<List<StoredProcedure>> GetStoredProcedureInfo(string databaseName) =>
+    DatabaseFetch<StoredProcedure>(databaseName, 60, 5 * 60);
+
 
         public Cache<List<DatabaseBackup>> GetBackupInfo(string databaseName) =>
-            Cache<List<DatabaseBackup>>.WithKey(
-                GetCacheKey("BackupInfo-" + databaseName),
-                UpdateFromSql("Backup Info for " + databaseName,
-                    conn => conn.QueryAsync<DatabaseBackup>(GetFetchSQL<DatabaseBackup>(), new {databaseName}),
-                    logExceptions: true),
-                RefreshInterval, 60);
+            DatabaseFetch<DatabaseBackup>(databaseName, RefreshInterval, 60);
 
+        public Cache<List<MissingIndex>> GetMissingIndexes(string databaseName) =>
+            DatabaseFetch<MissingIndex>(databaseName, RefreshInterval, 60);
 
-        public Cache<List<DatabaseColumn>> GetColumnInfo(string databaseName)
-        {
-            return Cache<List<DatabaseColumn>>.WithKey(
-                GetCacheKey("ColumnInfo-" + databaseName),
-                UpdateFromSql("Column Info for " + databaseName, conn =>
-                {
-                    var sql = $"Use [{databaseName}]; {GetFetchSQL<DatabaseColumn>()}";
-                    return conn.QueryAsync<DatabaseColumn>(sql);
-                }),
-                5*60, 30*60);
-        }
+        public Cache<List<RestoreHistory>> GetRestoreInfo(string databaseName) => 
+            DatabaseFetch<RestoreHistory>(databaseName, RefreshInterval, 60);
+
+        public Cache<List<DatabaseColumn>> GetColumnInfo(string databaseName) =>
+            DatabaseFetch<DatabaseColumn>(databaseName);
+
+        public Cache<List<DatabaseDataSpace>> GetDataSpaceInfo(string databaseName) =>
+            DatabaseFetch<DatabaseDataSpace>(databaseName);
+
+        public Database GetDatabase(string databaseName) => Databases.Data?.FirstOrDefault(db => db.Name == databaseName);
+
+        private Cache<List<T>> DatabaseFetch<T>(string databaseName, int duration = 5*60, int staleDuration = 30*60)
+            where T : ISQLVersioned, new() =>
+                Cache<List<T>>.WithKey(
+                    GetCacheKey(typeof (T).Name + "Info-" + databaseName),
+                    UpdateFromSql(typeof (T).Name + " Info for " + databaseName,
+                        conn =>
+                        {
+                            conn.ChangeDatabase(databaseName);
+                            return conn.QueryAsync<T>(GetFetchSQL<T>(), new { databaseName });
+                        },
+                        logExceptions: true),
+                    duration, staleDuration);
 
         public static readonly HashSet<string> SystemDatabaseNames = new HashSet<string>
             {
@@ -138,7 +150,7 @@ namespace StackExchange.Opserver.Data.SQL
                 get
                 {
                     if (IsReadOnly)
-                        return "Database is read-only";
+                        return Name + " is read-only";
 
                     switch (State)
                     {
@@ -327,7 +339,134 @@ Select db.database_id DatabaseId,
                 return FetchSQL;
             }
         }
+        public class MissingIndex : ISQLVersioned
+        {
+            public string SchemaName { get; internal set; }
+            public string TableName { get; internal set; }
+            public decimal AvgTotalUserCost { get; internal set; }
+            public decimal AvgUserImpact { get; internal set; }
+            public int UserSeeks { get; internal set; }
+            public int UserScans { get; internal set; }
+            public int UniqueCompiles { get; internal set; }
+            public string EqualityColumns { get; internal set; }
+            public string InEqualityColumns { get; internal set; }
+            public string IncludedColumns { get; internal set; }
+            public decimal EstimatedImprovement { get; internal set; }
+            public Version MinVersion => SQLServerVersions.SQL2008.SP1;
+            
+            public string GetFetchSQL(Version v)
+            {
+                return @"
+ Select s.name SchemaName,
+        o.name TableName,
+        avg_total_user_cost AvgTotalUserCost,
+        avg_user_impact AvgUserImpact,
+        user_seeks UserSeeks,
+        user_scans UserScans,
+		unique_compiles UniqueCompiles,
+		equality_columns EqualityColumns,
+		inequality_columns InEqualityColumns,
+		included_columns IncludedColumns,
+        avg_total_user_cost* avg_user_impact *(user_seeks + user_scans) EstimatedImprovement
+   From sys.dm_db_missing_index_details mid
+        Join sys.dm_db_missing_index_groups mig On mig.index_handle = mid.index_handle
+        Join sys.dm_db_missing_index_group_stats migs On migs.group_handle = mig.index_group_handle
+        Join sys.databases d On d.database_id = mid.database_id
+        Join sys.objects o On mid.object_id = o.object_id
+        Join sys.schemas s On o.schema_id = s.schema_id
+  Where d.name = @databaseName
+    And avg_total_user_cost * avg_user_impact * (user_seeks + user_scans) > 0
+  Order By EstimatedImprovement Desc";
+            }
+        }
 
+
+        public class StoredProcedure : ISQLVersioned
+        {
+            public Version MinVersion => SQLServerVersions.SQL2005.RTM;
+            public string SchemaName { get; internal set; }
+            public string ProcedureName { get; internal set; }
+            public DateTime CreationDate { get; internal set; }
+            public DateTime LastModifiedDate { get; internal set; }
+            public DateTime? LastExecuted { get; internal set; }
+            public int? ExecutionCount { get; internal set; }
+            public int? LastElapsedTime { get; internal set; }
+            public int? MaxElapsedTime { get; internal set; }
+            public int? MinElapsedTime { get; internal set; }
+            public string Definition { get; internal set; }
+            public string GetFetchSQL(Version v) => @"
+Select p.object_id,
+       s.name as SchemaName,
+       p.name ProcedureName,
+       p.create_date CreationDate,
+       p.modify_date LastModifiedDate,
+       Max(ps.last_execution_time) as LastExecuted,
+       Max(ps.execution_count) as ExecutionCount,
+       Max(ps.last_elapsed_time/1000) as LastElapsedTime,
+       Max(ps.max_elapsed_time/1000) as MaxElapsedTime,
+       Max(ps.min_elapsed_time/1000) as MinElapsedTime,
+       sm.definition [Definition]
+  From sys.procedures p
+       Join sys.schemas s
+         On p.schema_id = s.schema_id
+       Join sys.sql_modules sm 
+         On p.object_id  = sm.object_id 
+       Left Join sys.dm_exec_procedure_stats ps 
+         On p.object_id	= ps.object_id
+ Where p.is_ms_shipped = 0
+ Group By p.object_id, s.name, p.name, p.create_date, p.modify_date, sm.definition";
+        }
+        public class RestoreHistory : ISQLVersioned
+        {
+            public DateTime RestoreFinishDate { get; internal set; }
+            public string  UserName { get; internal set; }
+            public string BackupMedia { get; internal set; }
+            public DateTime BackupStartDate { get; internal set; }
+            public DateTime BackupFinishDate { get; internal set; }
+            public char? RestoreType { get; internal set; }
+            public string RestoreTypeDescription => GetTypeDescription(RestoreType);
+
+            public static string GetTypeDescription(char? type)
+            {
+                switch (type)
+                {
+                    case 'D':
+                        return "Database";
+                    case 'F':
+                        return "File";
+                    case 'G':
+                        return "Filegroup";
+                    case 'I':
+                        return "Differential";
+                    case 'L':
+                        return "Log";
+                    case 'V':
+                        return "Verify Only";
+                    case null:
+                        return "";
+                    default:
+                        return "Unknown";
+                }
+            }
+
+            public Version MinVersion =>  SQLServerVersions.SQL2008.SP1;
+            public string GetFetchSQL(Version v)
+            {
+                return @"
+Select r.restore_date RestoreFinishDate, 
+       r.user_name UserName, 
+       bmf.physical_device_name BackupMedia,
+	   bs.backup_start_date BackupStartDate,
+	   bs.backup_finish_date BackupFinishDate,
+	   r.restore_type RestoreType
+  From msdb.dbo.[restorehistory] r 
+       Join [msdb].[dbo].[backupset] bs 
+         On r.backup_set_id = bs.backup_set_id
+       Join [msdb].[dbo].[backupmediafamily] bmf 
+         On bs.media_set_id = bmf.media_set_id
+ Where r.destination_database_name = @databaseName"; 
+            }
+        }
         public class DatabaseBackup : ISQLVersioned
         {
             public Version MinVersion => SQLServerVersions.SQL2005.RTM;
@@ -398,9 +537,8 @@ Select Top 100
         {
             public Version MinVersion => SQLServerVersions.SQL2005.RTM;
 
-            public string VolumeId { get; internal set; }
-            public string VolumeMountPoint { get; internal set; }
-            public string LogicalVolumeName { get; internal set; }
+            private string _volumeMountPoint;
+            public string VolumeMountPoint => _volumeMountPoint ?? (_volumeMountPoint = PhysicalName?.Split(StringSplits.Colon).First());
             public int DatabaseId { get; internal set; }
             public string DatabaseName { get; internal set; }
             public int FileId { get; internal set; }
@@ -418,11 +556,17 @@ Select Top 100
             public long NumReads { get; internal set; }
             public long StallWriteMs { get; internal set; }
             public long NumWrites { get; internal set; }
+            public long UsedSizeBytes { get; internal set; }
+            public long TotalSizeBytes { get; internal set; }
 
             public double AvgReadStallMs => NumReads == 0 ? 0 : StallReadMs / (double)NumReads;
             public double AvgWriteStallMs => NumWrites == 0 ? 0 : StallWriteMs / (double)NumWrites;
-            public long FileSizeBytes => FileSizePages*8*1024;
 
+            private static readonly Regex _ShortPathRegex = new Regex(@"C:\\Program Files\\Microsoft SQL Server\\MSSQL\d+.MSSQLSERVER\\MSSQL\\DATA", RegexOptions.Compiled);
+            private string _shortPhysicalName;
+            public string ShortPhysicalName =>
+                    _shortPhysicalName ?? (_shortPhysicalName = _ShortPathRegex.Replace(PhysicalName ?? "", @"C:\Program...MSSQLSERVER\MSSQL\DATA"));
+            
             public string GrowthDescription
             {
                 get
@@ -455,10 +599,7 @@ Select Top 100
             }
 
             public string GetFetchSQL(Version v) => @"
-Select vs.volume_id VolumeId,
-       vs.volume_mount_point VolumeMountPoint, 
-       vs.logical_volume_name LogicalVolumeName,
-       mf.database_id DatabaseId,
+Select mf.database_id DatabaseId,
        DB_Name(mf.database_id) DatabaseName,
        mf.file_id FileId,
        mf.name FileName,
@@ -474,12 +615,51 @@ Select vs.volume_id VolumeId,
        fs.io_stall_read_ms StallReadMs,
        fs.num_of_reads NumReads,
        fs.io_stall_write_ms StallWriteMs,
-       fs.num_of_writes NumWrites
+       fs.num_of_writes NumWrites,
+       Cast(FileProperty(mf.name, 'SpaceUsed') As BigInt)*8*1024 UsedSizeBytes,
+       Cast(mf.size as BigInt)*8*1024 TotalSizeBytes
   From sys.dm_io_virtual_file_stats(null, null) fs
        Join sys.master_files mf 
          On fs.database_id = mf.database_id
          And fs.file_id = mf.file_id
-       Cross Apply sys.dm_os_volume_stats(mf.database_id, mf.file_id) vs";
+ Where (FileProperty(mf.name, 'SpaceUsed') Is Not Null Or DB_Name() = 'master')";
+        }
+
+        public class DatabaseDataSpace : ISQLVersioned
+        {
+            public Version MinVersion => SQLServerVersions.SQL2005.RTM;
+
+            public int Id { get; internal set; }
+            public string Name { get; internal set; }
+            public string Type { get; internal set; }
+            public string TypeDescription => GetTypeDescription(Type);
+            public bool IsDefault { get; internal set; }
+            public bool IsSystem { get; internal set; }
+
+            public static string GetTypeDescription(string type)
+            {
+                switch (type)
+                {
+                    case "FG":
+                        return "Filegroup";
+                    case "PS":
+                        return "Partition Scheme";
+                    case "FD":
+                        return "FILESTREAM";
+                    case null:
+                        return "";
+                    default:
+                        return "Unknown";
+                }
+            }
+
+            public string GetFetchSQL(Version v) => @"
+Select data_space_id Id,
+       name Name,
+       type Type,
+       is_default IsDefault,
+       is_system IsSystem
+  From sys.data_spaces";
         }
 
         public class DatabaseVLF : ISQLVersioned
@@ -504,7 +684,14 @@ Create Table #vlfTemp (
 );
 
 Declare @dbId int, @dbName sysname;
-Declare dbs Cursor Local Fast_Forward For (Select database_id, name From sys.databases Where state <> 6);
+Declare dbs Cursor Local Fast_Forward For (
+    Select db.database_id, db.name From sys.databases db
+    Left Join sys.database_mirroring m ON db.database_id = m.database_id
+    Where db.state <> 6
+        and ( db.state <> 1 
+            or ( m.mirroring_role = 2 and m.mirroring_state = 4 )
+            )
+    );
 Open dbs;
 Fetch Next From dbs Into @dbId, @dbName;
 While @@FETCH_STATUS = 0
@@ -583,6 +770,34 @@ Select t.object_id Id,
    And i.object_id > 255
 Group By t.object_id, t.Name, t.create_date, s.name";
         }
+        
+        public class DatabaseView : ISQLVersioned
+        {
+            public Version MinVersion => SQLServerVersions.SQL2005.RTM;
+
+            public int Id { get; internal set; }
+            public string SchemaName { get; internal set; }
+            public string ViewName { get; internal set; }
+            public DateTime CreationDate { get; internal set; }
+            public DateTime LastModifiedDate { get; internal set; }
+            public bool IsReplicated { get; internal set; }
+            public string Definition { get; internal set; }
+
+            public string GetFetchSQL(Version v) => @"
+Select v.object_id Id,
+       s.name SchemaName,
+       v.name ViewName,
+       v.create_date CreationDate,
+       v.modify_date LastModifiedDate,
+       v.is_replicated IsReplicated,
+       sm.definition Definition
+  From sys.views v
+       Join sys.schemas s
+         On v.schema_id = s.schema_id
+       Join sys.sql_modules sm 
+         On sm.object_id = v.object_id  
+ Where v.is_ms_shipped = 0";
+        }
 
         public class DatabaseColumn : ISQLVersioned
         {
@@ -592,7 +807,9 @@ Group By t.object_id, t.Name, t.create_date, s.name";
 
             public string Schema { get; internal set; }
             public string TableName { get; internal set; }
+            public string ViewName { get; internal set; }
             public int Position { get; internal set; }
+            public int ObjectId { get; internal set; }
             public string ColumnName { get; internal set; }
             public string DataType { get; internal set; }
             public bool IsNullable { get; internal set; }
@@ -683,11 +900,17 @@ Group By t.object_id, t.Name, t.create_date, s.name";
 //         And c.TABLE_NAME = kcu.TABLE_NAME
 //         And c.COLUMN_NAME = kcu.COLUMN_NAME
 //Order By c.TABLE_SCHEMA, c.TABLE_NAME, c.ORDINAL_POSITION";
+            internal const string FetchSQL2008Columns = @"
+       c.is_sparse IsSparse,
+       c.is_column_set IsColumnSet,
+";
 
-            public string GetFetchSQL(Version v) => @"
+            internal const string FetchSQL = @"
 Select s.name [Schema],
        t.name TableName,
+       v.name ViewName,
        c.column_id Position,
+       c.object_id ObjectId,
        c.name ColumnName,
        ty.name DataType,
        c.is_nullable IsNullable,
@@ -698,9 +921,7 @@ Select s.name [Schema],
        c.collation_name CollationName,
        c.is_identity IsIdentity,
        c.is_computed IsComputed,
-       c.is_filestream IsFileStream,
-       c.is_sparse IsSparse,
-       c.is_column_set IsColumnSet,
+       c.is_filestream IsFileStream, {0}
        (Select Top 1 i.name
           From sys.indexes i 
                Join sys.index_columns ic On i.object_id = ic.object_id And i.index_id = ic.index_id
@@ -712,14 +933,24 @@ Select s.name [Schema],
        ft.name ForeignKeyTargetTable,
        fc.name ForeignKeyTargetColumn
   From sys.columns c
-       Join sys.tables t On c.object_id = t.object_id
-       Join sys.schemas s On t.schema_id = s.schema_id
+       Left Join sys.tables t On c.object_id = t.object_id
+       Left Join sys.views v On c.object_id = v.object_id
+       Join sys.schemas s On (t.schema_id = s.schema_id Or v.schema_id = s.schema_id)
        Join sys.types ty On c.user_type_id = ty.user_type_id
        Left Join sys.foreign_key_columns fkc On fkc.parent_object_id = t.object_id And fkc.parent_column_id = c.column_id
        Left Join sys.tables ft On fkc.referenced_object_id = ft.object_id
        Left Join sys.schemas fs On ft.schema_id = fs.schema_id
        Left Join sys.columns fc On fkc.referenced_object_id = fc.object_id And fkc.referenced_column_id = fc.column_id
 Order By 1, 2, 3";
+
+            public string GetFetchSQL(Version v)
+            {
+                if (v >= SQLServerVersions.SQL2008.RTM)
+                    return string.Format(FetchSQL, FetchSQL2008Columns);
+
+                return string.Format(FetchSQL, "");
+            }
+
         }
 
     }

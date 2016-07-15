@@ -7685,10 +7685,9 @@ li.L9 {
   display: none;
   box-shadow: 2px 2px 3px #222222;
   position: absolute;
-  background-color: white;
+  background-color: #f5f5f5;
   white-space: nowrap;
   z-index: 5;
-  border: solid 1px #EEE;
 }
 .chart .chart-tooltip .note {
   color: #AAA;
@@ -7744,6 +7743,70 @@ li.L9 {
   position: relative;
   top: 1px;
 }
+.circle-percent {
+  display: block;
+  height: 80px;
+  width: 80px;
+  margin: 0 auto 5px auto;
+  position: relative;
+}
+.circle-percent .circle-label {
+  position: absolute;
+  display: block;
+  width: 100%;
+  transform: translate(0, -50%);
+  top: 50%;
+  text-align: center;
+  font-size: 1.8em;
+}
+.circle-percent .circle-label p {
+  line-height: 11px;
+  margin: 0;
+  font-size: 11px;
+}
+.circle-percent svg circle {
+  stroke-dashoffset: 0;
+  stroke-width: 3px;
+  transform-origin: 50% 50%;
+  fill: transparent;
+  fill-opacity: 0.05;
+}
+svg .stroke-primary {
+  stroke: #008cba;
+}
+svg .stroke-primary.filled {
+  fill: #008cba;
+}
+svg .stroke-success {
+  stroke: #43ac6a;
+}
+svg .stroke-success.filled {
+  fill: #43ac6a;
+}
+svg .stroke-info {
+  stroke: #5bc0de;
+}
+svg .stroke-info.filled {
+  fill: #5bc0de;
+}
+svg .stroke-warning {
+  stroke: #E99002;
+}
+svg .stroke-warning.filled {
+  fill: #E99002;
+}
+svg .stroke-danger {
+  stroke: #F04124;
+}
+svg .stroke-danger.filled {
+  fill: #F04124;
+}
+svg .stroke-muted {
+  stroke: rgba(78, 93, 108, 0.2);
+}
+svg .stroke-muted.filled {
+  fill: rgba(78, 93, 108, 0.2);
+}
 .badge-link-list {
   list-style-type: none;
   padding-left: 0;
@@ -7765,6 +7828,8 @@ li.L9 {
   font-size: 10px;
   vertical-align: text-bottom;
   text-decoration: none;
+  line-height: 15px;
+  padding: 0 4px;
 }
 .badge-link-list li:after {
   content: " | ";
@@ -8222,6 +8287,9 @@ li.L9 {
   color: #fff;
 }
 .navbar-left > a.active:hover {
+  text-decoration: none;
+}
+a:focus {
   text-decoration: none;
 }
 h4,
@@ -8835,9 +8903,9 @@ table .text-muted,
 .table > thead tr.category-row th,
 .table-striped > thead tr.category-row th {
   border-top: none;
-  background: white;
+  background: #fff;
   padding-top: 11px;
-  padding-bottom: 0px;
+  padding-bottom: 0;
 }
 .table > tbody tr.category-row th h4,
 .table-striped > tbody tr.category-row th h4,
@@ -8865,6 +8933,24 @@ table .text-muted,
   padding: 0;
   border: none;
   margin-bottom: 0;
+}
+.table > tbody .progress.vertical,
+.table-striped > tbody .progress.vertical,
+.table > thead .progress.vertical,
+.table-striped > thead .progress.vertical {
+  height: 20px;
+  width: 6px;
+  display: inline-block;
+  vertical-align: middle;
+  position: relative;
+}
+.table > tbody .progress.vertical .progress-bar,
+.table-striped > tbody .progress.vertical .progress-bar,
+.table > thead .progress.vertical .progress-bar,
+.table-striped > thead .progress.vertical .progress-bar {
+  width: 100%;
+  position: absolute;
+  bottom: 0;
 }
 .table-actions h5 a.glyphicon {
   font-size: 12px;
@@ -8903,22 +8989,8 @@ table .text-muted,
   margin: 0 auto;
 }
 .no-content {
-  color: rgba(78, 93, 108, 0.2);
-  text-align: center;
-}
-dl {
-  overflow: auto;
-  margin-bottom: 0;
-}
-dt,
-dd {
-  float: left;
-}
-dt {
-  clear: both;
-  font-weight: normal;
-  margin-right: 10px;
   color: #999999;
+  text-align: center;
 }
 .panel-body.smaller {
   font-size: 0.9em;
@@ -8988,4 +9060,7 @@ tr.cache-sub-item td:first-child {
 }
 .ui-helper-hidden-accessible {
   display: none;
+}
+.total-row {
+  font-weight: bold;
 }

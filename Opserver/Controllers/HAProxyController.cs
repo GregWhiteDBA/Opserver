@@ -12,16 +12,19 @@ namespace StackExchange.Opserver.Controllers
     [OnlyAllow(Roles.HAProxy)]
     public partial class HAProxyController : StatusController
     {
-        protected override ISecurableSection SettingsSection => Current.Settings.HAProxy;
+        public override ISecurableSection SettingsSection => Current.Settings.HAProxy;
 
-        protected override string TopTab => TopTabs.BuiltIn.HAProxy;
+        public override TopTab TopTab => new TopTab("HAProxy", nameof(Dashboard), this, 60)
+        {
+            GetMonitorStatus = () => HAProxyGroup.AllGroups.GetWorstStatus()
+        };
 
         [Route("haproxy")]
         [Route("haproxy/dashboard")]
-        public ActionResult HAProxyDashboard(string group, string node, string watch = null, bool norefresh = false)
+        public ActionResult Dashboard(string group, string node, string watch = null, bool norefresh = false)
         {
             var haGroup = HAProxyGroup.GetGroup(group ?? node);
-            var proxies = (haGroup != null ? haGroup.GetProxies() : HAProxyGroup.GetAllProxies());
+            var proxies = haGroup != null ? haGroup.GetProxies() : HAProxyGroup.GetAllProxies();
             proxies.RemoveAll(p => !p.HasServers);
 
             var vd = new HAProxyModel
@@ -37,13 +40,13 @@ namespace StackExchange.Opserver.Controllers
         }
 
         [Route("haproxy/traffic")]
-        public async Task<ActionResult> HAProxyTraffic(string host)
+        public async Task<ActionResult> Traffic(string host)
         {
             if (!Current.Settings.HAProxy.Traffic.Enabled)
                 return DefaultAction();
             
-            var hosts = Data.HAProxy.HAProxyTraffic.GetHostsAsync();
-            var topRoutes = Data.HAProxy.HAProxyTraffic.GetTopPageRotuesAsync(30, host);
+            var hosts = HAProxyTraffic.GetHostsAsync();
+            var topRoutes = HAProxyTraffic.GetTopPageRotuesAsync(30, host);
 
             await Task.WhenAll(hosts, topRoutes);
 

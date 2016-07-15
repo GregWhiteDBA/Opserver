@@ -39,7 +39,7 @@ namespace StackExchange.Opserver.Data.HAProxy
         }
         protected override string GetMonitorStatusReason()
         {
-            if (Proxies.Data == null) return Name + ": No Proxy Data Available";
+            if (Proxies.Data == null) return Name + ": No Data";
 
             var statuses = Proxies.Data
                 .SelectMany(p => p.Servers)
@@ -55,7 +55,7 @@ namespace StackExchange.Opserver.Data.HAProxy
         }
 
         public HAProxyInstance(HAProxySettings.Instance instance, HAProxySettings.Group group = null)
-            : base(instance.Name + ":" + instance.Description + " - " + instance.Url.GetHashCode().ToString())
+            : base(instance.Name + ":" + instance.Description + " - " + instance.Url)
         {
             RawSettings = instance;
             Settings = Current.Settings.HAProxy.GetInstanceSettings(instance, group);

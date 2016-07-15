@@ -11,9 +11,12 @@ namespace StackExchange.Opserver.Controllers
     [OnlyAllow(Roles.Elastic)]
     public class ElasticController : StatusController
     {
-        protected override ISecurableSection SettingsSection => Current.Settings.Elastic;
+        public override ISecurableSection SettingsSection => Current.Settings.Elastic;
 
-        protected override string TopTab => TopTabs.BuiltIn.Elastic;
+        public override TopTab TopTab => new TopTab("Elastic", nameof(Dashboard), this, 30)
+        {
+            GetMonitorStatus = () => ElasticCluster.AllClusters.GetWorstStatus()
+        };
 
         [Route("elastic")]
         public ActionResult Dashboard(string cluster, string node)
@@ -27,7 +30,7 @@ namespace StackExchange.Opserver.Controllers
         }
 
         [Route("elastic/cluster")]
-        public ActionResult Dashboard(string cluster)
+        public ActionResult Cluster(string cluster)
         {
             var vd = GetViewData(cluster);
             vd.View = DashboardModel.Views.Cluster;

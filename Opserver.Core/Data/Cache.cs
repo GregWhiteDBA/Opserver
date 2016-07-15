@@ -52,11 +52,6 @@ namespace StackExchange.Opserver.Data
         }
         public Func<Cache<T>, Task> UpdateCache { get; set; }
 
-        /// <summary>
-        /// If profiling for cache polls is active, this contains a MiniProfiler of the current or last poll
-        /// </summary>
-        public MiniProfiler Profiler { get; set; }
-
         public override async Task<int> PollAsync(bool force = false)
         {
             Interlocked.Increment(ref PollingEngine._activePolls);
@@ -144,7 +139,6 @@ namespace StackExchange.Opserver.Data
                 {
                     CacheKey = key,
                     CacheForSeconds = cacheSeconds,
-                    CacheStaleForSeconds = cacheStaleSeconds,
                     UpdateCache = update
                 };
                 Current.LocalCache.Set(key, result, cacheSeconds + cacheStaleSeconds);
@@ -168,24 +162,22 @@ namespace StackExchange.Opserver.Data
         /// Unique key for caching, only used for items that are on-demand, e.g. methods that have cache based on parameters
         /// </summary>
         protected string CacheKey { get; set; }
-        protected string CompeteKey => CacheKey + "-compete";
-        public int? CacheFailureForSeconds { get; set; }
+        public int? CacheFailureForSeconds { get; set; } = 15;
         public int CacheForSeconds { get; set; }
-        public int CacheStaleForSeconds { get; set; }
         public bool AffectsNodeStatus { get; set; }
         public virtual Type Type => typeof(Cache);
-        public Guid UniqueId { get; private set; }
+        public Guid UniqueId { get; }
         
         public bool ShouldPoll => _needsPoll || IsStale && !_isPolling;
 
         internal volatile bool _needsPoll = true;
         protected volatile bool _isPolling;
         public bool IsPolling => _isPolling;
-        public bool IsStale =>
-            (LastPoll?.AddSeconds(LastPollSuccessful
+        public bool IsStale => (NextPoll ?? DateTime.MinValue) < DateTime.UtcNow;
+        public DateTime? NextPoll =>
+            LastPoll?.AddSeconds(LastPollSuccessful
                 ? CacheForSeconds
-                : CacheFailureForSeconds.GetValueOrDefault(CacheForSeconds)) ?? DateTime.MinValue) < DateTime.UtcNow;
-        public bool IsExpired => LastPoll?.AddSeconds(CacheForSeconds + CacheStaleForSeconds) < DateTime.UtcNow;
+                : CacheFailureForSeconds.GetValueOrDefault(CacheForSeconds));
 
         protected long _pollsTotal, _pollsSuccessful;
         public long PollsTotal => _pollsTotal;
@@ -196,7 +188,12 @@ namespace StackExchange.Opserver.Data
         public TimeSpan? LastPollDuration { get; internal set; }
         public DateTime? LastSuccess { get; internal set; }
         public bool LastPollSuccessful { get; internal set; }
-        
+
+        /// <summary>
+        /// If profiling for cache polls is active, this contains a MiniProfiler of the current or last poll
+        /// </summary>
+        public MiniProfiler Profiler { get; set; }
+
         internal void SetSuccess()
         {
             LastSuccess = LastPoll = DateTime.UtcNow;

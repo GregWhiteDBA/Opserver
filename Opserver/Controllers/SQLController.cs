@@ -14,14 +14,17 @@ namespace StackExchange.Opserver.Controllers
     [OnlyAllow(Roles.SQL)]
     public partial class SQLController : StatusController
     {
-        protected override ISecurableSection SettingsSection => Current.Settings.SQL;
+        public override ISecurableSection SettingsSection => Current.Settings.SQL;
 
-        protected override string TopTab => TopTabs.BuiltIn.SQL;
+        public override TopTab TopTab => new TopTab("SQL", nameof(Servers), this, 10)
+        {
+            GetMonitorStatus = () => SQLInstance.AllInstances.GetWorstStatus()
+        };
 
         [Route("sql")]
         public ActionResult Dashboard()
         {
-            return Redirect("/sql/servers");
+            return RedirectToAction(nameof(Servers));
         }
 
         [Route("sql/servers")]
@@ -215,15 +218,27 @@ namespace StackExchange.Opserver.Controllers
             };
             switch (view)
             {
-                case "tables":
-                    vd.View = DatabasesModel.Views.Tables;
-                    return View("Databases.Modal.Tables", vd);
                 case "backups":
                     vd.View = DatabasesModel.Views.Backups;
                     return View("Databases.Modal.Backups", vd);
+                case "restores":
+                    vd.View = DatabasesModel.Views.Restores;
+                    return View("Databases.Modal.Restores", vd);
+                case "storage":
+                    vd.View = DatabasesModel.Views.Storage;
+                    return View("Databases.Modal.Storage", vd);
+                case "tables":
+                    vd.View = DatabasesModel.Views.Tables;
+                    return View("Databases.Modal.Tables", vd);
                 case "views":
                     vd.View = DatabasesModel.Views.Views;
                     return View("Databases.Modal.Views", vd);
+                case "missingindexes":
+                    vd.View = DatabasesModel.Views.MissingIndexes;
+                    return View("Databases.Modal.MissingIndexes", vd);
+                case "storedprocedures":
+                    vd.View = DatabasesModel.Views.StoredProcedures;
+                    return View("Databases.Modal.StoredProcedures", vd);
             }
             return View("Databases.Modal.Tables", vd);
         }

@@ -31,7 +31,8 @@ namespace StackExchange.Opserver.Data.Elastic
             })
         });
 
-        public string Name => Nodes.HasData() ? Nodes.Data.Name : "Unknown";
+        public string Name => Nodes.HasData() ? Nodes.Data.Name : SettingsName;
+        public string ShortName(NodeInfo node) => node?.Name.TrimEnd("-" + Name);
 
         public class ClusterNodesInfo
         {
@@ -647,8 +648,8 @@ namespace StackExchange.Opserver.Data.Elastic
 
                     public class GCOverallStats : GarbageCollectorStats
                     {
-                        [DataMember(Name = "Collectors")]
-                        public Dictionary<string, GarbageCollectorStats> collectors { get; internal set; }
+                        [DataMember(Name = "collectors")]
+                        public Dictionary<string, GarbageCollectorStats> Collectors { get; internal set; }
                     }
 
                     public class GarbageCollectorStats
